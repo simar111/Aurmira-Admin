@@ -99,7 +99,6 @@ productSchema.pre('save', function (next) {
 });
 
 // --- Export Factory Function ---
-// This lets you bind the schema to whichever DB connection you want
 module.exports = (connection) => {
   return connection.model('Product', productSchema);
 };
