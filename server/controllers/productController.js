@@ -1,12 +1,34 @@
 const fs = require('fs');
 const mongoose = require('mongoose');
-const Product = require('../models/Product');
-const multer = require('multer');  
+const { connectToDB } = require('../db');
+const ProductModel = require('../models/Product');
+const multer = require('multer');
 
-// Add a new product (POST API)
+// Initialize the Product model with the database connection
+let Product;
+const initializeDB = async () => {
+  try {
+    const connection = await connectToDB();
+    Product = ProductModel(connection);
+    console.log('Product model initialized successfully');
+  } catch (error) {
+    console.error('Failed to initialize Product model:', error);
+    throw error;
+  }
+};
+
+// Call initializeDB when the server starts
+initializeDB().catch(err => {
+  console.error('Failed to initialize DB:', err);
+  process.exit(1);
+});
 
 const addProduct = async (req, res) => {
   try {
+    if (!Product) {
+      throw new Error('Product model not initialized');
+    }
+
     const {
       title,
       tagline,
@@ -57,12 +79,13 @@ const addProduct = async (req, res) => {
       if (
         !entry.size ||
         typeof entry.size !== 'string' ||
+        !['XS', 'S', 'M', 'L', 'XL', 'XXL'].includes(entry.size) ||
         typeof entry.quantity !== 'number' ||
         entry.quantity < 0
       ) {
         return res.status(400).json({
           success: false,
-          message: 'Each size must include a valid size (string) and quantity (non-negative number)'
+          message: 'Each size must include a valid size (XS, S, M, L, XL, XXL) and quantity (non-negative number)'
         });
       }
     }
@@ -90,7 +113,7 @@ const addProduct = async (req, res) => {
     });
 
     if (existingProduct) {
-      // If exists, just update total quantity and merge sizes
+      // If exists, update total quantity and merge sizes
       parsedSizes.forEach(newSize => {
         const existing = existingProduct.sizesAvailable.find(
           s => s.size === newSize.size
@@ -103,7 +126,6 @@ const addProduct = async (req, res) => {
       });
 
       existingProduct.totalQuantity += computedTotal;
-
       await existingProduct.save();
 
       return res.status(200).json({
@@ -175,7 +197,7 @@ const addProduct = async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: `Error adding product${error}`,
+      message: `Error adding product: ${error.message}`,
       error: error
     });
   }
@@ -184,6 +206,10 @@ const addProduct = async (req, res) => {
 // Get all products (GET API - Simple Version)
 const getProducts = async (req, res) => {
   try {
+    if (!Product) {
+      throw new Error('Product model not initialized');
+    }
+
     const products = await Product.find({});
 
     const productList = products.map(product => ({
@@ -193,19 +219,14 @@ const getProducts = async (req, res) => {
       price: product.price,
       category: product.category,
       subcategory: product.subcategory,
-      image: product.image && product.image.data
-        ? {
-            contentType: product.image.contentType,
-            data: product.image.data.toString('base64')
-          }
-        : null,
       images: product.images && Array.isArray(product.images)
         ? product.images.map(image => ({
             contentType: image.contentType,
             data: image.data.toString('base64')
           }))
         : [],
-      quantity: product.quantity,
+      sizesAvailable: product.sizesAvailable,
+      totalQuantity: product.totalQuantity,
       createdAt: product.createdAt,
       updatedAt: product.updatedAt
     }));
@@ -216,90 +237,13 @@ const getProducts = async (req, res) => {
   }
 };
 
-// Create a new product (POST API - Detailed Version)
-const createProduct = async (req, res) => {
-  try {
-    const { title, description, price, category, subcategory, quantity } = req.body;
-    const files = req.files;
-
-    if (!title || !price || !category || !subcategory || quantity === undefined) {
-      return res.status(400).json({ success: false, message: 'Title, price, category, subcategory, and quantity are required' });
-    }
-
-    const validCategories = ['Skincare', 'Makeup', 'Haircare', 'Fragrance'];
-    if (!validCategories.includes(category)) {
-      return res.status(400).json({ success: false, message: 'Invalid category' });
-    }
-
-    const existingProduct = await Product.findOne({ title });
-    if (existingProduct) {
-      return res.status(400).json({ success: false, message: 'Product with this title already exists' });
-    }
-
-    const parsedQuantity = parseInt(quantity);
-    if (isNaN(parsedQuantity) || parsedQuantity < 0) {
-      return res.status(400).json({ success: false, message: 'Quantity must be a non-negative number' });
-    }
-
-    let imagesData = [];
-    if (files && files.length > 0) {
-      if (files.length > 3) {
-        return res.status(400).json({ success: false, message: 'Maximum of 3 images allowed per product' });
-      }
-      imagesData = files.map(file => ({
-        data: file.buffer,
-        contentType: file.mimetype
-      }));
-    }
-
-    const newProduct = new Product({
-      title,
-      description,
-      price,
-      category,
-      subcategory,
-      images: imagesData,
-      quantity: parsedQuantity
-    });
-
-    await newProduct.save();
-
-    res.status(201).json({
-      success: true,
-      message: 'Product created successfully',
-      product: {
-        id: newProduct._id,
-        title: newProduct.title,
-        description: newProduct.description,
-        price: newProduct.price,
-        category: newProduct.category,
-        subcategory: newProduct.subcategory,
-        images: newProduct.images.map(image => ({
-          contentType: image.contentType,
-          data: image.data.toString('base64')
-        })),
-        quantity: newProduct.quantity,
-        createdAt: newProduct.createdAt,
-        updatedAt: newProduct.updatedAt
-      }
-    });
-  } catch (error) {
-    if (error instanceof multer.MulterError) {
-      if (error.code === 'LIMIT_UNEXPECTED_FILE') {
-        return res.status(400).json({ success: false, message: 'Too many files uploaded. Maximum 3 images allowed.' });
-      }
-      if (error.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({ success: false, message: 'File size exceeds the 5MB limit.' });
-      }
-      return res.status(400).json({ success: false, message: `Multer error: ${error.message}` });
-    }
-    res.status(500).json({ success: false, message: 'Error creating product', error: error.message });
-  }
-};
-
 // Get all products (GET API - Detailed Version)
 const getAllProducts = async (req, res) => {
   try {
+    if (!Product) {
+      throw new Error('Product model not initialized');
+    }
+
     const products = await Product.find();
 
     const productList = products.map(product => ({
@@ -330,9 +274,14 @@ const getAllProducts = async (req, res) => {
     res.status(500).json({ success: false, message: 'Error retrieving products', error: error.message });
   }
 };
+
 // Get total number of products (GET API)
 const getProductCount = async (req, res) => {
   try {
+    if (!Product) {
+      throw new Error('Product model not initialized');
+    }
+
     const totalProducts = await Product.countDocuments();
     res.status(200).json({
       success: true,
@@ -351,6 +300,10 @@ const getProductCount = async (req, res) => {
 // Delete a product (DELETE API)
 const deleteProduct = async (req, res) => {
   try {
+    if (!Product) {
+      throw new Error('Product model not initialized');
+    }
+
     const { id } = req.params;
 
     if (!id) {
@@ -377,29 +330,39 @@ const deleteProduct = async (req, res) => {
         title: product.title,
         category: product.category,
         subcategory: product.subcategory,
-        quantity: product.quantity
+        totalQuantity: product.totalQuantity
       }
     });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error deleting product', error: error.message });
   }
 };
+
+// Get product by ID (GET API)
 const getProductById = async (req, res) => {
   try {
-    const { id } = req.params; // Extract the product ID from the request parameters
+    if (!Product) {
+      throw new Error('Product model not initialized');
+    }
 
-    // Find the product by ID
-    const product = await Product.findById(id);
+    const { id } = req.params;
 
-    // Check if the product exists
-    if (!product) {
-      return res.status(404).json({
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
         success: false,
-        message: 'Product not found',
+        message: 'Invalid product ID'
       });
     }
 
-    // Transform the product data to match the format of getAllProducts
+    const product = await Product.findById(id);
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found'
+      });
+    }
+
     const productData = {
       id: product._id,
       title: product.title,
@@ -407,24 +370,18 @@ const getProductById = async (req, res) => {
       price: product.price,
       category: product.category,
       subcategory: product.subcategory,
-      image: product.image && product.image.data
-        ? {
-            contentType: product.image.contentType,
-            data: product.image.data.toString('base64')
-          }
-        : null,
       images: product.images && Array.isArray(product.images)
         ? product.images.map(image => ({
             contentType: image.contentType,
             data: image.data.toString('base64')
           }))
         : [],
-      quantity: product.quantity,
+      sizesAvailable: product.sizesAvailable,
+      totalQuantity: product.totalQuantity,
       createdAt: product.createdAt,
       updatedAt: product.updatedAt
     };
 
-    // Return the product data
     res.status(200).json({
       success: true,
       message: 'Product retrieved successfully',
@@ -438,4 +395,5 @@ const getProductById = async (req, res) => {
     });
   }
 };
-module.exports = { addProduct, getProducts, createProduct, getAllProducts, getProductCount, deleteProduct ,getProductById};
+
+module.exports = { addProduct, getProducts, getAllProducts, getProductCount, deleteProduct, getProductById };
