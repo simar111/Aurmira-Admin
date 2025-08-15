@@ -1,6 +1,7 @@
 const fs = require('fs');
 const mongoose = require('mongoose');
 const Product = require('../models/Product');
+const multer = require('multer');  
 
 // Add a new product (POST API)
 
@@ -174,8 +175,8 @@ const addProduct = async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: 'Error adding product',
-      error: error.message
+      message: `Error adding product${error}`,
+      error: error
     });
   }
 };

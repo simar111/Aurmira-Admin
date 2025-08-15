@@ -160,7 +160,9 @@ const AdminAddProduct = () => {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to add product');
+         console.log(errorData);
+        throw new Error(errorData.messaage || 'Failed to add product');
+       
       }
 
       const result = await response.json();
