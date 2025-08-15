@@ -1,6 +1,6 @@
 const fs = require('fs');
 const mongoose = require('mongoose');
-const { connectToDB } = require('../db');
+const { connectToDB } = require('../database/db');
 const ProductModel = require('../models/Product');
 const multer = require('multer');
 
