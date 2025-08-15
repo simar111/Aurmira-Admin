@@ -19,7 +19,7 @@ const upload = multer({
 });
 
 // Routes
-router.post('/', upload.array('images', 5), addProduct); // Add a new product
+router.post('/add', upload.array('images', 5), addProduct); // Add a new product
 router.get('/', getAllProducts); // Get all products
 router.get('/count', getProductCount); // Get total product count
 router.delete('/:id', deleteProduct); // Delete a product by ID
