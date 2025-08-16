@@ -14,7 +14,7 @@ const ProductsPage = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('http://localhost:8080/api/products/all1');
+      const response = await fetch('http://localhost:8080/api/products/all');
       const data = await response.json();
       if (!response.ok || !data.success) {
         throw new Error(data.message || 'Failed to fetch products');
